@@ -1,0 +1,10 @@
+[$HOME/.tmux/plugins/tpm]
+checkout =
+    git clone 'git@github.com:jwhitley/tpm.git' 'tpm'
+    cd $HOME/.tmux/plugins/tpm
+    git remote add upstream git@github.com:tmux-plugins/tpm.git
+upgrade =
+    git fetch upstream
+    git merge --ff-only upstream/master
+    git push origin master
+
