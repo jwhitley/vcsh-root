@@ -33,9 +33,6 @@ export PATH=$HOME/tmp:$PATH
 # Clone the bootstrap repo, containing the mr configuration
 vcsh clone git@github.com:jwhitley/vcsh-root.git mr
 
-# Force an upgrade to run our vcsh hooks on the mr repo
-vcsh upgrade mr
-
 # Fixup mr's working tree for the sparse checkout settings
 vcsh mr read-tree -mu HEAD
 
