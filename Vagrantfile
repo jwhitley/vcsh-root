@@ -83,6 +83,8 @@ vcsh upgrade mr
 vcsh mr read-tree -mu HEAD
 
 mr update
+
+rm -rf $HOME/tmp
 # END bootstrap.sh work-alike
     EOF
   end
