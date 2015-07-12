@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # This program is licensed under the GNU GPL version 2 or later.
-# (c) Richard "RichiH" Hartmann <richih@debian.org>, 2011-2014
+# (c) Richard "RichiH" Hartmann <richih@debian.org>, 2011-2015
 # For details, see LICENSE. To submit patches, you have to agree to
 # license your code under the GNU GPL version 2 or later.
 
@@ -119,7 +119,8 @@ help() {
           <newname>     Rename repository
    run <repo> \\
        <command>        Use this repository
-   status [<repo>]      Show statuses of all/one vcsh repositories
+   status \\
+     [--terse] [<repo>] Show statuses of all/one vcsh repositories
    upgrade <repo>       Upgrade repository to currently recommended settings
    version              Print version information
    which <substring>    Find substring in name of any tracked file
@@ -212,6 +213,17 @@ enter() {
 	use
 	$SHELL
 	hook post-enter
+}
+
+foreach() {
+	hook pre-foreach
+	for VCSH_REPO_NAME in $(list); do
+		echo "$VCSH_REPO_NAME:"
+		GIT_DIR=$VCSH_REPO_D/$VCSH_REPO_NAME.git; export GIT_DIR
+		use
+		git "$@"
+	done
+	hook post-foreach
 }
 
 git_dir_exists() {
@@ -312,7 +324,7 @@ list_untracked_helper() {
 		cp $temp_file_others $temp_file_untracked || fatal 'Could not copy temp file'
 	fi
 	cp $temp_file_untracked $temp_file_untracked_copy || fatal 'Could not copy temp file'
-	comm -12 --nocheck-order $temp_file_others $temp_file_untracked_copy > $temp_file_untracked
+	comm -12 $temp_file_others $temp_file_untracked_copy > $temp_file_untracked
 }
 
 pull() {
@@ -367,19 +379,24 @@ run() {
 }
 
 status() {
+	if [ -t 1 ]; then
+		COLORING="-c color.status=always"
+	fi
 	if [ -n "$VCSH_REPO_NAME" ]; then
 		status_helper $VCSH_REPO_NAME
 	else
 		for VCSH_REPO_NAME in $(list); do
-			echo "$VCSH_REPO_NAME:"
-			status_helper $VCSH_REPO_NAME
-			echo
+			STATUS=$(status_helper $VCSH_REPO_NAME "$COLORING")
+			[ -n "$STATUS" -o -z "$VCSH_STATUS_TERSE" ] && echo "$VCSH_REPO_NAME:"
+			[ -n "$STATUS" ]            && echo "$STATUS"
+			[ -z "$VCSH_STATUS_TERSE" ] && echo
 		done
 	fi
 }
 
 status_helper() {
-	GIT_DIR=$VCSH_REPO_D/$VCSH_REPO_NAME.git; export GIT_DIR
+	GIT_DIR=$VCSH_REPO_D/$1.git; export GIT_DIR
+	VCSH_GIT_OPTIONS=$2
 	use
 	remote_tracking_branch=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2> /dev/null) && {
 		commits_behind=$(git log ..${remote_tracking_branch} --oneline | wc -l)
@@ -387,7 +404,7 @@ status_helper() {
 		[ ${commits_behind} -ne 0 ] && echo "Behind $remote_tracking_branch by $commits_behind commits"
 		[ ${commits_ahead} -ne 0 ] && echo "Ahead of $remote_tracking_branch by $commits_ahead commits"
 	}
-	git status --short --untracked-files='no'
+	git ${VCSH_GIT_OPTIONS} status --short --untracked-files='no'
 	VCSH_COMMAND_RETURN_CODE=$?
 }
 
@@ -546,6 +563,9 @@ elif [ x"$VCSH_COMMAND" = x'delete' ]           ||
 	[ x"$VCSH_COMMAND" = x'rename' ] && { VCSH_REPO_NAME_NEW=$3; export VCSH_REPO_NAME_NEW;
 	                                      GIT_DIR_NEW=$VCSH_REPO_D/$VCSH_REPO_NAME_NEW.git; export GIT_DIR_NEW; }
 	[ x"$VCSH_COMMAND" = x'run' ]    && shift 2
+elif [ x"$VCSH_COMMAND" = x'foreach' ]; then
+	[ -z "$2" ] && fatal "$VCSH_COMMAND: please specify a command" 1
+	shift 1
 elif [ x"$VCSH_COMMAND" = x'commit' ] ||
      [ x"$VCSH_COMMAND" = x'list'   ] ||
      [ x"$VCSH_COMMAND" = x'list-tracked' ] ||
@@ -554,6 +574,10 @@ elif [ x"$VCSH_COMMAND" = x'commit' ] ||
      [ x"$VCSH_COMMAND" = x'push'   ]; then
 	:
 elif [ x"$VCSH_COMMAND" = x'status' ]; then
+	if [ x"$2" = x'--terse' ]; then
+		VCSH_STATUS_TERSE=1; export VCSH_STATUS_TERSE
+		shift
+	fi
 	VCSH_REPO_NAME=$2; export VCSH_REPO_NAME
 elif [ -n "$2" ]; then
 	VCSH_COMMAND='run'; export VCSH_COMMAND
