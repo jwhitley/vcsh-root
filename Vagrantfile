@@ -47,7 +47,7 @@ GITHUB_PUBLIC_KEY
 sudo chsh -s /bin/zsh $USER
 
 # Install linuxbrew
-git clone https://github.com/Homebrew/linuxbrew.git ~/.linuxbrew
+[ ! -d ~/.linuxbrew ] && git clone https://github.com/Homebrew/linuxbrew.git ~/.linuxbrew
 brew=~/.linuxbrew/bin/brew
 brew_pkgs=(
   fzf
@@ -57,7 +57,7 @@ $brew install ${brew_pkgs[@]}
 
 bash -lc 'vim -c :PlugInstall -c :qall! >& /dev/null'
 
-mkdir ~/.zlocal/this
+[ ! -d ~/.zlocal/this ] && mkdir ~/.zlocal/this
 cat > ~/.zlocal/this/zenviron <<END
 # Override our default prompt birdtrack mark:
 pr_birdtrack='$'
