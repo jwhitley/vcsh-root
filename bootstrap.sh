@@ -10,7 +10,7 @@ fatal () {
 
 [ -z "$HOME" ] && fatal '$HOME not set; exiting' 1
 
-mkdir $HOME/tmp
+[ ! -d $HOME/tmp ] && mkdir $HOME/tmp
 cd $HOME/tmp
 
 [ -z "$HTTP_GET" ] && command -v wget >/dev/null && HTTP_GET='wget -nv'
