@@ -13,7 +13,7 @@ fatal () {
 [ ! -d $HOME/tmp ] && mkdir $HOME/tmp
 cd $HOME/tmp
 
-[ -z "$HTTP_GET" ] && command -v wget >/dev/null && HTTP_GET='wget -nv'
+[ -z "$HTTP_GET" ] && command -v wget >/dev/null && HTTP_GET='wget -N -nv'
 [ -z "$HTTP_GET" ] && command -c curl >/dev/null && HTTP_GET='curl -s -S -O'
 [ -z "$HTTP_GET" ] && fatal 'Unable to find wget or curl'
 
