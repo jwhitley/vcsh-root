@@ -1,0 +1,2 @@
+[$HOME/.config/vcsh/repo.d/osx.git]
+checkout = vcsh clone git@github.com:jwhitley/osx-utils.git osx
