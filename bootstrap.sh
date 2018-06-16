@@ -19,7 +19,7 @@ cd $HOME/tmp
 
 echo "$SELF: bootstrapping vcsh and mr with '$HTTP_GET'"
 
-vcsh_root='https://raw.github.com/jwhitley/vcsh-root/master'
+vcsh_root='https://raw.githubusercontent.com/jwhitley/vcsh-root/master'
 
 $HTTP_GET $vcsh_root/local/bin/vcsh
 $HTTP_GET $vcsh_root/local/bin/mr
