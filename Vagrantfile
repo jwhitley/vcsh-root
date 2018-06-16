@@ -1,7 +1,7 @@
 Vagrant.configure(2) do |config|
   config.ssh.forward_agent = true
 
-  config.vm.box = "ubuntu/trusty64"
+  config.vm.box = "ubuntu/bionic64"
   config.vm.hostname = "#{File.basename(File.dirname(__FILE__))}.dev"
 
   # To make sure packages are up to date
@@ -17,7 +17,7 @@ deps=(
   ncurses-dev
   sharutils
   silversearcher-ag
-  vim-nox
+  neovim
   wget
   zsh
 )
@@ -33,7 +33,7 @@ GITHUB_PUBLIC_KEY
     EOF
   end
 
-  # Bootstrap using the local (worktree) bootstrap.sh script, but using 
+  # Bootstrap using the local (worktree) bootstrap.sh script, but using
   # the vcsh-root master from the remote repository
   config.vm.provision "shell" do |s|
     s.privileged = false
@@ -47,7 +47,7 @@ GITHUB_PUBLIC_KEY
 sudo chsh -s /bin/zsh $USER
 
 # Install linuxbrew
-[ ! -d ~/.linuxbrew ] && git clone https://github.com/Homebrew/linuxbrew.git ~/.linuxbrew
+[ ! -d ~/.linuxbrew ] && git clone https://github.com/Linuxbrew/brew.git ~/.linuxbrew
 brew=~/.linuxbrew/bin/brew
 brew_pkgs=(
   fzf
