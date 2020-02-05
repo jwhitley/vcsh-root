@@ -15,6 +15,7 @@ deps=(
   build-essential
   git
   ncurses-dev
+  ruby
   sharutils
   silversearcher-ag
   neovim
