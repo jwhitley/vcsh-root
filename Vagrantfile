@@ -1,7 +1,7 @@
 Vagrant.configure(2) do |config|
   config.ssh.forward_agent = true
 
-  config.vm.box = "ubuntu/bionic64"
+  config.vm.box = "ubuntu/focal64"
   config.vm.hostname = "#{File.basename(File.dirname(__FILE__))}.dev"
 
   # To make sure packages are up to date
