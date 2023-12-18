@@ -46,7 +46,7 @@ B<mr> [options] remember action [params ...]
 
 B<mr> is a tool to manage all your version control repos. It can checkout,
 update, or perform other actions on a set of repositories as if they were
-one combined repository. It supports any combination of subversion, git,
+one combined repository. It supports any combination of Subversion, git,
 cvs, mercurial, bzr, darcs, fossil and veracity repositories, and support
 for other version control systems can easily be added.
 
@@ -126,11 +126,64 @@ Show the commit log.
 =item grep pattern
 
 Searches for a pattern in each repository using the grep subcommand. Uses
-ack-grep on VCS that do not have their own.
+ack or ack-grep on VCS that do not have their own.
+Ignores the return value from grep subcommands so that you can use
+C<mr -m grep foo> and not get output in non-matching repositories.
 
 =item run command [param ...]
 
 Runs the specified command in each repository.
+
+The command is run exactly as provided to mr,
+without any interpretation by the shell
+other than the one that mr is run from.
+
+If you would like to access C<$MR_REPO> or
+any of the other special environment variables,
+you can access them by running a shell command:
+
+  mr run sh -c 'ls "$MR_REPO"'
+
+If you would like more permanent flexibility
+then you can define commands in your config
+to evaluate the command as shell
+or run the command in a subshell.
+Please note that using these options
+could make it hard to do quoting correctly.
+
+For example you can define eval/sh/bash commands:
+
+  mr config DEFAULT 'eval=eval "$*"'
+  mr config DEFAULT 'sh=sh -c "$*"'
+  mr config DEFAULT 'bash=bash -c "$*"'
+
+You can run those commands like this:
+
+  mr eval 'ls "$MR_REPO"'
+  mr sh 'ls "$MR_REPO"'
+  mr bash 'ls "$MR_REPO"'
+
+You can of course override the run command
+rather than defining any new commands.
+
+  mr config DEFAULT 'run=eval "$*"'
+  mr config DEFAULT 'run=sh -c "$*"'
+  mr config DEFAULT 'run=bash -c "$*"'
+
+If you would like to run other mr commands for each repo
+a better option is to define a new command that does that.
+
+For example you might want to configure multiple repos:
+
+  mr config DEFAULT 'configure=mr config "$MR_REPO" "$@"'
+
+You can run that command like this:
+
+  mr configure foo=bar bar=baz
+
+You can also just use the recursive option instead:
+
+  mr -r config foo=bar bar=baz
 
 =back
 
@@ -192,6 +245,9 @@ Adds, modifies, removes, or prints a value from a mrconfig file. The next
 parameter is the name of the section the value is in. To add or modify
 values, use one or more instances of "setting=value". Use "setting=" to
 remove a setting. Use just "setting" to get the value of a that setting.
+When the section is not provided and only one setting is provided the section
+will default to the repository corresponding to the current directory if
+it is already registered in the configuration.
 
 For example, to add (or edit) a repository in src/foo:
 
@@ -204,6 +260,27 @@ To show the command that mr uses to update the repository in src/foo:
 To see the built-in library of shell functions contained in mr:
 
   mr config DEFAULT lib
+
+To operate on one setting for the current repository:
+
+  mr config setting
+  mr config setting=
+  mr config setting=value
+
+Do not pass more than one setting when omitting the repository section,
+otherwise the first setting will be used as the section instead.
+
+To operate on all the registered repositories under the current directory
+you can use the -r/--recurse mr option. When in recursive mode the output
+will be similar to normal commands and the quiet and minimal output options
+will also have their normal effect on the output. When in recursive mode
+attempting to display an value that does not exist will print failure
+messages for quiet mode but not print anything for minimal mode and the
+failures will not prevent mr from operating on later repositories.
+
+  mr -r config setting
+  mr -r config setting=
+  mr -r config setting=value
 
 The mrconfig file that is used is chosen by either the -c option, or by
 looking for the closest known one at or in a parent of the current directory.
@@ -267,6 +344,11 @@ of its parent directories.
 Force mr to act on repositories that would normally be skipped due to their
 configuration.
 
+=item --force-env
+
+Force mr to execute even though potentially dangerous environment variables
+are set.
+
 =item -v
 
 =item --verbose
@@ -320,6 +402,23 @@ If a number is specified, will recurse into repositories at most that many
 subdirectories deep. For example, with -n 2 it would recurse into ./src/foo,
 but not ./src/packages/bar.
 
+=item -r [number]
+
+=item --recurse [number]
+
+Normal commands recurse normally and commands that usually only operate on
+the repository for the current directory will instead recursively operate
+on all repositories under the current directory.
+
+If no number if specified or the number is 0 then the whole directory tree
+under the current directory will be recursed.
+
+If a number greater than 0 is specified, will recurse into repositories at
+most that many subdirectories deep. For example, with -r 2 it would recurse
+into ./src/foo, but not ./src/packages/bar.
+
+The "config" command has a recursive mode.
+
 =item -j [number]
 
 =item --jobs [number]
@@ -331,6 +430,39 @@ It is not recommended for interactive operations.
 Note that running more than 10 jobs at a time is likely to run afoul of
 ssh connection limits. Running between 3 and 5 jobs at a time will yield
 a good speedup in updates without loading the machine too much.
+
+=item --cache
+
+Saves the command output and return values to files in the F<~/.mrcache/>
+directory tree after executing each command.
+
+Ignored when being run from subdirs of a repo unless --top is enabled.
+
+This is used by the C<cache-mr-status.sh> shell extension.
+
+=item --cached
+
+For repos where the cache is populated, prints the cached output instead
+of executing the commands. For repos with an unpopulated cache, executes
+the commands and stores output into the cache.
+
+Ignored when being run from subdirs of a repo unless --top is enabled.
+
+This is most useful when the C<cache-mr-status.sh> shell extension is enabled.
+
+=item --uncache
+
+For repos where the cache is populated, remove the cached output before
+executing any commands.
+
+This may be useful to users of the C<cache-mr-status.sh> shell extension.
+
+=item --top
+
+When being run from subdirs of a repo, change directory to the top
+of the repo before running any commands.
+
+This is used by the C<cache-mr-status.sh> shell extension.
 
 =item -t
 
@@ -356,8 +488,9 @@ Here is an example F<.mrconfig> file:
   chain = true
 
   [src/linux-2.6]
-  checkout = git clone git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux-2.6.git &&
-  	cd linux-2.6 &&
+  checkout = 
+        git clone git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux-2.6.git
+  	cd linux-2.6
   	git checkout -b mybranch origin/master
 
 The F<.mrconfig> file uses a variant of the INI file format. Lines
@@ -374,7 +507,7 @@ All other sections add repositories. The section header specifies the
 directory where the repository is located. This is relative to the directory
 that contains the mrconfig file, but you can also choose to use absolute
 paths. (Note that you can use environment variables in section names; they
-will be passed through the shell for expansion. For example, 
+will be passed through the shell for expansion. For example,
 C<[$HOSTNAME]>, or C<[${HOSTNAME}foo]>).
 
 Within a section, each setting defines a shell command to run to handle a
@@ -387,13 +520,17 @@ The command will be run in the parent directory, and must create the
 repository's directory. So use C<git clone>, C<svn checkout>, C<bzr branch>
 or C<bzr checkout> (for a bound branch), etc.
 
+The command may be a simple command, or an arbitrarily complicated shell
+script. When there are multiple indented lines, the shell is passed
+the script with line breaks preserved.
+
 Note that these shell commands are run in a C<set -e> shell
 environment, where any additional parameters you pass are available in
 C<$@>. All commands other than "checkout" are run inside the repository,
 though not necessarily at the top of it.
 
 The C<MR_REPO> environment variable is set to the path to the top of the
-repository. (For the "register" action, "MR_REPO" is instead set to the 
+repository. (For the "register" action, "MR_REPO" is instead set to the
 basename of the directory that should be created when checking the
 repository out.)
 
@@ -426,9 +563,9 @@ been at least 12 hours since the last update.
   [linux]
   checkout = ...
   skip = [ "$1" = update ] && ! hours_since "$1" 12
- 
+
 Another way to use skip is for a lazy checkout. This makes mr skip
-operating on a repo unless it already exists. To enable the 
+operating on a repo unless it already exists. To enable the
 repo, you have to explicitly check it out (using "mr --force -d foo checkout").
 
   [foo]
@@ -478,7 +615,7 @@ to keep track of and remember to delete old repositories.
 
 The "lib" setting can contain some shell code that will be run
 before each command, this can be a useful way to define shell
-functions for other commands to use. 
+functions for other commands to use.
 
 Unlike most other settings, this can be specified multiple times, in
 which case the chunks of shell code are accumulatively concatenated
@@ -491,12 +628,22 @@ is checked out, or updated. This provides an easy way to do things
 like permissions fixups, or other tweaks to the repository content,
 whenever the repository is changed.
 
+=item jobs
+
+If "jobs" is set, run the specified number of jobs in parallel.
+This can greatly speed up operations such as updates.
+
+Note that running more than 10 jobs at a time is likely to run afoul of
+ssh connection limits. Running between 3 and 5 jobs at a time will yield
+a good speedup in updates without loading the machine too much.
+
 =item VCS_action
 
 When looking for a command to run for a given action, mr first looks for
 a setting with the same name as the action. If that is not found, it
 looks for a setting named "VCS_action" (substituting in the name of the
-version control system and the action).
+version control system and the action). If that is not found, it looks for
+a setting named "action_default" (substituting in the name of the action).
 
 Internally, mr has settings for "git_update", "svn_update", etc. To change
 the action that is performed for a given version control system, you can
@@ -510,11 +657,33 @@ specified action. Similarly, "post_action" commands are run after mr
 successfully performs the specified action. For example, "pre_commit" is
 run before committing; "post_update" is run after updating.
 
+=item _prepend
+
+Any setting can be suffixed with C<_prepend>, to prepend an additional
+value to the existing value of the setting. A line ending is added
+between the additional value and the existing value. In this way,
+actions can be constructed accumulatively.
+
+This is useful for applying modifier commands such as nice, ionice or nocache.
+To apply modifier commands, ensure you end this suffix with a shell line
+continuation character (the backslash C<\> in most shells) so that the line
+ending added by this suffix is ignored.
+
 =item _append
 
-Any setting can be suffixed with C<_append>, to add an additional value
-to the existing value of the setting. In this way, actions 
+Any setting can be suffixed with C<_append>, to append an additional value
+to the existing value of the setting. Line endings are added at the end
+of the existing value and after the additional value. In this way, actions
 can be constructed accumulatively.
+
+=item _default
+
+Any setting can be suffixed with C<_default>, to set the value for the
+setting when a VCS-specific setting cannot be found. This is mostly for
+making actions do nothing for most VCS actions by setting action_default
+to "true" and then setting the action for each VCS that has the action.
+
+This is used by the mr C<upgrade> extension.
 
 =item VCS_test
 
@@ -549,8 +718,9 @@ present, mr assumes it is in offline mode.
 =head1 EXTENSIONS
 
 mr can be extended to support things such as unison and git-svn. Some
-files providing such extensions are available in F</usr/share/mr/>. See
-the documentation in the files for details about using them.
+files providing such extensions are available in F</usr/share/mr/>.
+Some files providing mr shell extensions are in F</usr/share/mr.sh/>.
+See the documentation in the files for details about using them.
 
 =head1 EXIT STATUS
 
@@ -558,11 +728,11 @@ mr returns nonzero if a command failed in any of the repositories.
 
 =head1 AUTHOR
 
-Copyright 2007-2011 Joey Hess <joey@kitenet.net>
+Copyright 2007-2011 L<Joey Hess|mailto:joey@kitenet.net>
 
 Licensed under the GNU GPL version 2 or higher.
 
-http://myrepos.branchable.com/
+L<https://myrepos.branchable.com/>
 
 =cut
 
@@ -586,17 +756,32 @@ my $minimal=0;
 my $quiet=0;
 my $stats=0;
 my $force=0;
+my $force_env=0;
 my $insecure=0;
 my $interactive=0;
 my $max_depth;
 my $no_chdir=0;
+my $chdir_top=0;
 my $jobs=1;
+my $jobs_cmdline=0;
 my $trust_all=0;
+our $save_cache=0;
+our $print_cache=0;
+my $remove_cache=0;
+my $print_action=1;
+my $print_dir=1;
+my $print_subdir=1;
+my $print_footer=1;
 my $directory=getcwd();
-my $terminal=-t STDOUT && eval{require IO::Pty::Easy;IO::Pty::Easy->import();1;};
+my $have_pty=eval{require IO::Pty::Easy;IO::Pty::Easy->import();1;};
+my $terminal=-t STDOUT && $have_pty;
+my $erase_line=$terminal && eval{require Term::Cap;my $t=Term::Cap->Tgetent();$t->Tputs('ce');};
 
+eval { require File::HomeDir; $ENV{HOME} = File::HomeDir->my_home; 1; };
 my $HOME_MR_CONFIG = "$ENV{HOME}/.mrconfig";
 $ENV{MR_CONFIG}=find_mrconfig();
+
+my $HOME_MR_CACHE = "$ENV{HOME}/.mrcache";
 
 # globals :-(
 my %config;
@@ -623,13 +808,13 @@ sub runsh {
 	# optimisation: avoid running the shell for true and false
 	if ($command =~ /^\s*true\s*$/) {
 		$?=0;
-	       	return 0;
+		return 0;
 	}
 	elsif ($command =~ /^\s*false\s*$/) {
 		$?=0;
 		return 1;
 	}
-	
+
 	my $quotedparams=join(" ", (map { shellquote($_) } @$params));
 	my $lib=exists $config{$topdir}{$subdir}{lib} ?
 	               $config{$topdir}{$subdir}{lib}."\n" : "";
@@ -670,7 +855,7 @@ sub vcs_test {
 	my %perltest;
 	foreach my $vcs_test (
 			sort {
-				length $a <=> length $b 
+				length $a <=> length $b
 				          ||
 				       $a cmp $b
 			} grep { /_test$/ } keys %{$config{$topdir}{$subdir}}) {
@@ -709,10 +894,10 @@ sub vcs_test {
 		return $vcs{$dir}=$vcs[0];
 	}
 }
-	
+
 sub findcommand {
 	my ($action, $dir, $topdir, $subdir, $is_checkout) = @_;
-	
+
 	if (exists $config{$topdir}{$subdir}{$action}) {
 		return $config{$topdir}{$subdir}{$action};
 	}
@@ -723,7 +908,7 @@ sub findcommand {
 
 	my $vcs=vcs_test(@_);
 
-	if (defined $vcs && 
+	if (defined $vcs &&
 	    exists $config{$topdir}{$subdir}{$vcs."_".$action}) {
 		return $config{$topdir}{$subdir}{$vcs."_".$action};
 	}
@@ -737,32 +922,163 @@ sub fulldir {
 	return $subdir =~ /^\// ? $subdir : $topdir.$subdir;
 }
 
+sub strip_ansi_escape_codes {
+	my $output = shift;
+	$output =~ s/\e\[[?0-9;]*.//g;
+	$output =~ s/\e%.//g;
+	$output =~ s/\e\];\d[^\a\e]*(?:\a:\e.)//g;
+	return $output;
+}
+
 sub terminal_friendly_spawn {
 	my $actionmsg = shift;
 	my $sh = shift;
 	my $quiet = shift;
 	my $minimal = shift;
+	my $jobs = shift;
+	my $ret_cache = shift;
+	my $output_cache = shift;
+	my $continuous = !$quiet && $minimal && 1 == $jobs;
 	my $output = "";
-	if ($terminal) {
+	my $continuous_output = 0;
+	# When caching the output, save the terminal output
+	# since the output may be viewed on a terminal later
+	# and the output will probably be the same for both
+	# pipes and terminals after stripping ANSI escape codes.
+	if ($terminal || ($have_pty && defined $output_cache)) {
 		my $pty = IO::Pty::Easy->new;
 		$pty->spawn($sh);
-		while ($pty->is_active) {
-			my $data = $pty->read();
-			$output .= $data if defined $data;
+		if ($continuous) {
+			$| = 1;
+			print "$actionmsg$erase_line\r" if $actionmsg && $terminal;
+			while (my $data = $pty->getline()){
+				if ($actionmsg && !$continuous_output) {
+					print $actionmsg if !$terminal;
+					print "\n";
+				}
+				$continuous_output = 1;
+				print $output_cache $data if defined $output_cache;
+				$data = strip_ansi_escape_codes($data) if !$terminal;
+				print $data;
+			}
+		}
+		else {
+			while (1) {
+				my $data = $pty->read();
+				next if !defined $data; # interrupted by a signal
+				last if $data eq '';    # EOF
+				print $output_cache $data if defined $output_cache;
+				$output .= $data;
+			}
+			$output = strip_ansi_escape_codes($output) if !$terminal;
 		}
 		$pty->close;
-	} else {
+	}
+	else {
 		$output = qx/$sh 2>&1/;
+		print $output_cache $output if defined $output && defined $output_cache;
 	}
 	my $ret = $?;
+	print $ret_cache "$ret" if defined $ret && defined $ret_cache;
+	return print_results($actionmsg, $quiet, $minimal, $output, $continuous_output, $ret);
+}
+
+sub print_results {
+	my ($actionmsg, $quiet, $minimal, $output, $continuous_output, $ret) = @_;
 	if ($quiet && $ret != 0) {
 		print "$actionmsg\n" if $actionmsg;
 		print STDERR $output;
-	} elsif (!$quiet && (!$minimal || $output)) {
+	}
+	elsif (!$quiet && (!$minimal || $output)) {
 		print "$actionmsg\n" if $actionmsg;
 		print $output;
 	}
-	return ($ret, $output ? 1 : 0);
+	return ($ret, ($output || $continuous_output) ? 1 : 0);
+}
+
+sub cache_dir {
+	my ($action, $fulldir) = @_;
+	return "$HOME_MR_CACHE/$action$fulldir";
+}
+
+sub cache_names {
+	my ($action, $fulldir) = @_;
+	my $ret_name = 'mr_ret';
+	my $output_name = 'mr_output';
+	my $dir = cache_dir($action, $fulldir);
+	my $ret_full_name = "$dir/$ret_name";
+	my $output_full_name = "$dir/$output_name";
+	return ($dir, $ret_full_name, $output_full_name);
+}
+sub cache_open {
+	my ($action, $fulldir, $read_only) = @_;
+	my $file_mode = $read_only ? '<' : '>>';
+	my ($dir, $ret_name, $output_name) = cache_names($action, $fulldir);
+	if (!$read_only) {
+		system(qw(mkdir --parents --), $dir);
+		$ret_name .= '.tmp';
+		$output_name .= '.tmp';
+		unlink $ret_name, $output_name;
+	}
+	my ($ret_fh, $output_fh);
+	open $ret_fh, $file_mode, $ret_name or $ret_fh = undef;
+	open $output_fh, $file_mode, $output_name or $output_fh = undef;
+	return ($ret_fh, $output_fh);
+}
+
+sub cache_done {
+	my ($action, $fulldir, $read_only, $ret_fh, $output_fh) = @_;
+	cache_close($ret_fh, $output_fh);
+	cache_finalise($action, $fulldir) if !$read_only;
+}
+
+sub cache_close {
+	my ($ret_fh, $output_fh) = @_;
+	close $ret_fh if defined $ret_fh;
+	close $output_fh if defined $output_fh;
+}
+
+sub cache_finalise {
+	my ($action, $fulldir) = @_;
+	my (undef, $ret_name, $output_name) = cache_names($action, $fulldir);
+	rename "$ret_name.tmp", $ret_name;
+	rename "$output_name.tmp", $output_name;
+}
+
+sub cache_remove {
+	my ($action, $fulldir) = @_;
+	my ($dir, $ret_name, $output_name) = cache_names($action, $fulldir);
+	unlink $ret_name, $output_name;
+	system(qw(rmdir --ignore-fail-on-non-empty --parents --), $dir) if -d $dir;
+}
+
+sub cache_print {
+	my ($actionmsg, $quiet, $minimal, $ret_fh, $output_fh) = @_;
+	my $continuous_output = 0;
+	return (undef, undef) unless defined $ret_fh && defined $output_fh;
+	my $ret = do { local $/ = undef; <$ret_fh> };
+	my $output = do { local $/ = undef; <$output_fh> };
+	return (undef, undef) unless defined $ret && defined $output;
+	$ret = int($ret) if defined $ret;
+	$output = strip_ansi_escape_codes($output) if !$terminal && defined $output;
+	return print_results($actionmsg, $quiet, $minimal, $output, $continuous_output, $ret);
+}
+
+sub actionmsg {
+	my $action = shift;
+	my $fulldir = shift;
+	my $actionmsg = "";
+	if (! $no_chdir) {
+		$actionmsg .= "mr $action: " if $print_action;
+		$actionmsg .= $fulldir if $print_dir;
+	}
+	else {
+		my $s=$directory;
+		$s=~s/^\Q$fulldir\E\/?//;
+		$actionmsg .= "mr $action: " if $print_action;
+		$actionmsg .= $fulldir if $print_dir;
+		$actionmsg .= " (in subdir $s)" if $print_subdir;
+	}
 }
 
 sub action {
@@ -776,7 +1092,7 @@ sub action {
 
 	($ENV{MR_REPO}=$dir) =~ s!/$!!;
 	$ENV{MR_ACTION}=$action;
-	
+
 	foreach my $testname ("skip", "deleted") {
 		next if $force && $testname eq "skip";
 
@@ -786,6 +1102,10 @@ sub action {
 			my $ret=runsh "$testname test", $topdir, $subdir,
 				$testcommand, [$action],
 				sub { system(shift()) };
+			if ($ret == -1) {
+				print STDERR "mr $action: failed to execute: $!\n";
+				return FAILED;
+			}
 			if ($ret != 0) {
 				if (($? & 127) == 2) {
 					print STDERR "mr $action: interrupted\n";
@@ -816,7 +1136,7 @@ sub action {
 				print "mr $action: $dir already exists, skipping checkout\n" if $verbose;
 				return SKIPPED;
 			}
-	
+
 			$dir=~s/^(.*)\/[^\/]+\/?$/$1/;
 		}
 	}
@@ -830,14 +1150,18 @@ sub action {
 
 	if ($is_checkout && ! -d $dir) {
 		print "mr $action: creating parent directory $dir\n" if $verbose;
-		system("mkdir", "-p", $dir);
+		system(qw(mkdir -p --), $dir);
 	}
 
 	if (! $no_chdir && ! chdir($dir)) {
 		print STDERR "mr $action: failed to chdir to $dir: $!\n";
 		return FAILED;
 	}
-	elsif (! defined $command) {
+	if (! defined $command) {
+		my $default_command=findcommand("${action}_default", $dir, $topdir, $subdir, $is_checkout);
+		$command = $default_command if defined $default_command;
+	}
+	if (! defined $command) {
 		my $vcs=vcs_test(@_);
 		if (! defined $vcs) {
 			print STDERR "mr $action: unknown repository type and no defined $action command for $fulldir\n";
@@ -849,42 +1173,79 @@ sub action {
 		}
 	}
 	else {
-		my $actionmsg;
-		if (! $no_chdir) {
-			$actionmsg="mr $action: $fulldir";
+		local $save_cache = $save_cache;
+		local $print_cache = $print_cache;
+
+		# Do not bother caching true/false
+		# since runsh optimises them away.
+		if ($command =~ /^\s*(?:true|false)\s*$/) {
+			$save_cache = 0;
+			$print_cache = 0;
 		}
-		else {
-			my $s=$directory;
-			$s=~s/^\Q$fulldir\E\/?//;
-			$actionmsg="mr $action: $fulldir (in subdir $s)";
+
+		if ($no_chdir){
+			if ($chdir_top) { chdir($fulldir); }
+			else {
+				# Avoid contaminating the cache with results for
+				# just part of the repo instead of the whole repo.
+				$save_cache = 0;
+				# Avoid using the cache since it contains results for
+				# the whole repo instead of just part of the repo.
+				$print_cache = 0;
+			}
 		}
-		print "$actionmsg\n" unless $quiet || $minimal;
+
+		my $actionmsg = actionmsg($action, $fulldir);
+		print "$actionmsg\n" unless !$jobs || $jobs > 1 || $quiet || $minimal || $save_cache || $print_cache;
 
 		my ($hookret, $hook_out)=hook("pre_$action", $topdir, $subdir);
 		return $hookret if $hookret != OK;
 
+		cache_remove($action, $fulldir) if $remove_cache;
+
+		my ($cache_ret_fh, $cache_output_fh);
+		($cache_ret_fh, $cache_output_fh) = cache_open($action, $fulldir, !$save_cache) if $save_cache || $print_cache;
+
 		my ($ret, $out)=runsh $action, $topdir, $subdir,
 			$command, \@ARGV, sub {
 				my $sh=shift;
-				if (!$jobs || $jobs > 1 || $quiet || $minimal) {
-					return terminal_friendly_spawn($actionmsg, $sh, $quiet, $minimal);
+				if ($print_cache){
+					my ($ret, $out) = cache_print($actionmsg, $quiet, $minimal, $cache_ret_fh, $cache_output_fh);
+					return ($ret, $out) if defined $ret && defined $out;
+					# Reopen cache for writing if no cache was found
+					cache_close($cache_ret_fh, $cache_output_fh);
+					$save_cache = 1;
+					($cache_ret_fh, $cache_output_fh) = cache_open($action, $fulldir, !$save_cache);
+				}
+				if (!$jobs || $jobs > 1 || $quiet || $minimal || (defined $cache_ret_fh && defined $cache_output_fh)) {
+					return terminal_friendly_spawn($actionmsg, $sh, $quiet, $minimal, $jobs, $cache_ret_fh, $cache_output_fh);
 				}
 				else {
 					system($sh);
 				}
 			};
+
+		cache_done($action, $fulldir, !$save_cache, $cache_ret_fh, $cache_output_fh);
+
 		if ($ret != 0) {
-			if (($? & 127) == 2) {
-				print STDERR "mr $action: interrupted\n";
-				return ABORT;
-			}
-			elsif ($? & 127) {
-				print STDERR "mr $action: received signal ".($? & 127)."\n";
-				return ABORT;
+			if ($ret != -1) {
+				if (($? & 127) == 2) {
+					print STDERR "mr $action: interrupted\n";
+					return ABORT;
+				}
+				elsif ($? & 127) {
+					print STDERR "mr $action: received signal ".($? & 127)."\n";
+					return ABORT;
+				}
 			}
 			print STDERR "mr $action: failed ($ret)\n" if $verbose;
 			if ($ret >> 8 != 0) {
-				print STDERR "mr $action: command failed\n";
+				if ($ret == -1) {
+					print STDERR "mr $action: failed to execute: $!\n";
+				}
+				else {
+					print STDERR "mr $action: command failed\n";
+				}
 				if (-e "$ENV{HOME}/.mrlog" && $action ne 'remember') {
 					# recreate original command line to
 					# remember, and avoid recursing
@@ -907,18 +1268,18 @@ sub action {
 
 			my ($ret, $hook_out)=hook("post_$action", $topdir, $subdir);
 			return $ret if $ret != OK;
-			
+
 			if ($is_checkout || $is_update) {
 				if ($is_checkout && ! $no_chdir) {
 					if (! chdir($checkout_dir)) {
-				                print STDERR "mr $action: failed to chdir to $checkout_dir: $!\n";
+						print STDERR "mr $action: failed to chdir to $checkout_dir: $!\n";
 						return FAILED;
 					}
 				}
 				my ($ret, $hook_out)=hook("fixups", $topdir, $subdir);
 				return $ret if $ret != OK;
 			}
-			
+
 			return (OK, $out || $hook_out);
 		}
 	}
@@ -926,18 +1287,50 @@ sub action {
 
 sub hook {
 	my ($hook, $topdir, $subdir) = @_;
+	my $fulldir=fulldir($topdir, $subdir);
 
 	my $command=$config{$topdir}{$subdir}{$hook};
 	return OK unless defined $command;
+
+	local $save_cache = $save_cache;
+	local $print_cache = $print_cache;
+
+	# Do not bother caching true/false
+	# since runsh optimises them away.
+	if ($command =~ /^\s*(?:true|false)\s*$/) {
+		$save_cache = 0;
+		$print_cache = 0;
+	}
+
+	cache_remove($hook, $fulldir) if $remove_cache;
+
+	my ($cache_ret_fh, $cache_output_fh);
+	($cache_ret_fh, $cache_output_fh) = cache_open($hook, $fulldir, !$save_cache) if $save_cache || $print_cache;
+
 	my ($ret,$out)=runsh $hook, $topdir, $subdir, $command, [], sub {
 			my $sh=shift;
-			if (!$jobs || $jobs > 1 || $quiet || $minimal) {
-				return terminal_friendly_spawn(undef, $sh, $quiet, $minimal);
+			if ($print_cache){
+				my ($ret, $out) = cache_print(undef, $quiet, $minimal, $cache_ret_fh, $cache_output_fh);
+				return ($ret, $out) if defined $ret && defined $out;
+				# Reopen cache for writing if no cache was found
+				cache_close($cache_ret_fh, $cache_output_fh);
+				$save_cache = 1;
+				($cache_ret_fh, $cache_output_fh) = cache_open($hook, $fulldir, !$save_cache);
+			}
+			if (!$jobs || $jobs > 1 || $quiet || $minimal || (defined $cache_ret_fh && defined $cache_output_fh)) {
+				return terminal_friendly_spawn(undef, $sh, $quiet, $minimal, $jobs, $cache_ret_fh, $cache_output_fh);
 			}
 			else {
 				system($sh);
 			}
 		};
+
+	cache_done($hook, $fulldir, !$save_cache, $cache_ret_fh, $cache_output_fh);
+
+	if ($ret == -1) {
+		print STDERR "mr $hook: failed to execute: $!\n";
+		return FAILED;
+	}
 	if ($ret != 0) {
 		if (($? & 127) == 2) {
 			print STDERR "mr $hook: interrupted\n";
@@ -1008,13 +1401,13 @@ sub mrs {
 						$fhs[$i][$channel] = undef;
 						if (! defined $fhs[$i][0] &&
 						    ! defined $fhs[$i][1]) {
-						    	waitpid($active[$i][0], 0);
-							print STDOUT $out[$i][0];
-							print STDERR $out[$i][1];
+							waitpid($active[$i][0], 0);
+							print STDOUT $out[$i][0] if defined $out[$i][0];
+							print STDERR $out[$i][1] if defined $out[$i][1];
 							record($active[$i][1], $? >> 8, $out[$i][0] || $out[$i][1]);
-						    	splice(@fhs, $i, 1);
-						    	splice(@active, $i, 1);
-						    	splice(@out, $i, 1);
+							splice(@fhs, $i, 1);
+							splice(@active, $i, 1);
+							splice(@out, $i, 1);
 							$running--;
 						}
 					}
@@ -1063,7 +1456,7 @@ sub showstats {
 		showstat($#ok+1, "ok", "ok"),
 		showstat($#failed+1, "failed", "failed"),
 		showstat($#skipped+1, "skipped", "skipped"),
-	).")\n" unless $quiet || $minimal;
+	).")\n" unless $quiet || $minimal || !$print_footer;
 	if ($stats) {
 		if (@skipped) {
 			print "mr $action: (skipped: ".join(" ", @skipped).")\n" unless $quiet || $minimal;
@@ -1072,6 +1465,7 @@ sub showstats {
 			print STDERR "mr $action: (failed: ".join(" ", @failed).")\n";
 		}
 	}
+	print "$erase_line" if defined $erase_line && $terminal && !$quiet && $minimal && 1 == $jobs;
 }
 
 sub showstat {
@@ -1105,13 +1499,32 @@ sub repolist {
 	} @list;
 }
 
-sub repodir {
+sub absrepodir {
 	my $repo=shift;
 	my $topdir=$repo->{topdir};
 	my $subdir=$repo->{subdir};
 	my $ret=($subdir =~/^\//) ? $subdir : $topdir.$subdir;
 	$ret=~s/\/\.$//;
-	return $ret;
+	my $absret=safe_abs_path($ret);
+	return (defined $absret ? $absret : $ret);
+}
+
+sub find_repo_for {
+	my $directory = shift;
+	foreach my $repo (reverse repolist()) {
+		my $topdir=$repo->{topdir};
+		my $subdir=$repo->{subdir};
+
+		next if $subdir eq 'DEFAULT';
+		my $dir=absrepodir($repo);
+		my $d=$directory;
+		$dir.="/" unless $dir=~/\/$/;
+		$d.="/" unless $d=~/\/$/;
+		if ($d=~/^\Q$dir\E/) {
+			return ($dir, $topdir, $subdir);
+		}
+	}
+	return ();
 }
 
 # Figure out which repos to act on.  Returns a list of array refs
@@ -1125,7 +1538,7 @@ sub selectrepos {
 		my $subdir=$repo->{subdir};
 
 		next if $subdir eq 'DEFAULT';
-		my $dir=repodir($repo);
+		my $dir=absrepodir($repo);
 		my $d=$directory;
 		$dir.="/" unless $dir=~/\/$/;
 		$d.="/" unless $d=~/\/$/;
@@ -1140,20 +1553,8 @@ sub selectrepos {
 	}
 	if (! @repos) {
 		# fallback to find a leaf repo
-		foreach my $repo (reverse repolist()) {
-			my $topdir=$repo->{topdir};
-			my $subdir=$repo->{subdir};
-			
-			next if $subdir eq 'DEFAULT';
-			my $dir=repodir($repo);
-			my $d=$directory;
-			$dir.="/" unless $dir=~/\/$/;
-			$d.="/" unless $d=~/\/$/;
-			if ($d=~/^\Q$dir\E/) {
-				push @repos, [$dir, $topdir, $subdir];
-				last;
-			}
-		}
+		my @current_repo = find_repo_for($directory);
+		push @repos, [@current_repo] if @current_repo;
 		$no_chdir=1;
 	}
 	return @repos;
@@ -1161,13 +1562,13 @@ sub selectrepos {
 
 sub expandenv {
 	my $val=shift;
-	
+
 
 	if ($val=~/\$/) {
-		$val=`echo "$val"`;
+		$val=`printf '%s' "$val"`;
 		chomp $val;
 	}
-	
+
 	return $val;
 }
 
@@ -1176,7 +1577,7 @@ sub is_trusted_config {
 	my $config=shift; # must be abs_pathed already
 
 	# We always trust ~/.mrconfig.
-	return 1 if $config eq abs_path($HOME_MR_CONFIG);
+	return 1 if $config eq safe_abs_path($HOME_MR_CONFIG);
 
 	return 1 if $trust_all;
 
@@ -1188,7 +1589,7 @@ sub is_trusted_config {
 			while (<TRUST>) {
 				chomp;
 				s/^~\//$ENV{HOME}\//;
-				my $d=abs_path($_);
+				my $d=safe_abs_path($_);
 				$trusted{$d}=1 if defined $d;
 			}
 			close TRUST;
@@ -1201,7 +1602,7 @@ sub is_trusted_config {
 
 sub is_trusted_repo {
 	my $repo=shift;
-	
+
 	# Tightly limit what is allowed in a repo name.
 	# No ../, no absolute paths, and no unusual filenames
 	# that might try to escape to the shell.
@@ -1211,12 +1612,12 @@ sub is_trusted_repo {
 
 sub is_trusted_checkout {
 	my $command=shift;
-	
+
 	# To determine if the command is safe, compare it with the
 	# *_trusted_checkout config settings. Those settings are
 	# templates for allowed commands, so make sure that each word
 	# of the command matches the corresponding word of the template.
-	
+
 	my @words;
 	foreach my $word (split(' ', $command)) {
 		# strip quoting
@@ -1292,7 +1693,7 @@ sub loadconfig {
 		$trusted=1;
 	}
 	else {
-		my $absf=abs_path($f);
+		my $absf=safe_abs_path($f);
 		if ($loaded{$absf}) {
 			return;
 		}
@@ -1307,8 +1708,8 @@ sub loadconfig {
 			}
 		}
 
-		$dir=abs_path($dir)."/";
-		
+		$dir=safe_abs_path($dir)."/";
+
 		if (! exists $configfiles{$dir}) {
 			$configfiles{$dir}=$f;
 		}
@@ -1325,7 +1726,7 @@ sub loadconfig {
 				last;
 			}
 		}
-		
+
 		if (! -e $f) {
 			return;
 		}
@@ -1367,7 +1768,7 @@ sub loadconfig {
 	};
 	my $trusterror = sub {
 		my $msg=shift;
-	
+
 		if (defined $bootstrap_src) {
 			die "mr: $msg in untrusted $bootstrap_src line $lineno\n".
 				"(To trust this url, --trust-all can be used; but please use caution;\n".
@@ -1449,14 +1850,30 @@ sub loadconfig {
 				next;
 			}
 
+			if ($parameter eq 'jobs') {
+				print "mr: setting --jobs to \"$value\"\n" if $verbose;
+				unless ($value =~ /^\d+$/) {
+					print "mr: error: --jobs must be numeric\n";
+					exit 2
+				}
+				$jobs=$value unless $jobs_cmdline;
+				next;
+			}
+
 			if (! defined $section) {
 				$lineerror->("parameter ($parameter) not in section");
 			}
 			if ($section eq 'ALIAS') {
 				$alias{$parameter}=$value;
 			}
+			elsif ($parameter =~ s/_prepend$//) {
+				$config{$dir}{$section}{$parameter} = $value."\n".($config{$dir}{$section}{$parameter}//'');
+			}
 			elsif ($parameter eq 'lib' or $parameter =~ s/_append$//) {
 				$config{$dir}{$section}{$parameter}.="\n".$value."\n";
+			}
+			elsif ($parameter =~ /_default$/) {
+				$config{$dir}{$section}{$parameter}=$value;
 			}
 			else {
 				$config{$dir}{$section}{$parameter}=$value;
@@ -1474,6 +1891,9 @@ sub loadconfig {
 					}
 					if (-e "$chaindir/.mrconfig") {
 						my $ret=system($value);
+						if ($ret == -1) {
+							print STDERR "mr: chain test failed to execute: $!\n";
+						}
 						if ($ret != 0) {
 							if (($? & 127) == 2) {
 								print STDERR "mr: chain test interrupted\n";
@@ -1487,7 +1907,7 @@ sub loadconfig {
 							push @toload, ["$chaindir/.mrconfig", $chaindir];
 						}
 					}
-			        }
+				}
 			}
 		}
 		else {
@@ -1527,8 +1947,9 @@ sub modifyconfig {
 	my $formatfield=sub {
 		my $field=shift;
 		my @value=split(/\n/, shift);
+		my $first_line=shift(@value) // '';
 
-		return "$field = ".shift(@value)."\n".
+		return "$field = $first_line\n".
 			join("", map { "\t$_\n" } @value);
 	};
 	my $addfields=sub {
@@ -1553,7 +1974,7 @@ sub modifyconfig {
 			push @out, $_;
 		}
 		elsif (/^\[([^\]]*)\]\s*$/) {
-			if (defined $section && 
+			if (defined $section &&
 			    $section eq $targetsection) {
 				$addfields->();
 			}
@@ -1565,6 +1986,7 @@ sub modifyconfig {
 		elsif (/^(\w+)\s*=\s(.*)/) {
 			my $parameter=$1;
 			my $value=$2;
+			my $remove=0;
 
 			# continued value
 			while (@lines && $lines[0]=~/^\s(.+)/) {
@@ -1577,16 +1999,20 @@ sub modifyconfig {
 				if (exists $changefields{$parameter}) {
 					if (length $changefields{$parameter}) {
 						$value=$changefields{$parameter};
+					} else {
+						$remove = 1;
 					}
 					delete $changefields{$parameter};
 				}
 			}
 
-			push @out, $formatfield->($parameter, $value);
+			unless ($remove) {
+				push @out, $formatfield->($parameter, $value);
+			}
 		}
 	}
 
-	if (defined $section && 
+	if (defined $section &&
 	    $section eq $targetsection) {
 		$addfields->();
 	}
@@ -1601,15 +2027,27 @@ sub modifyconfig {
 
 	open(my $out, ">", $f) || die "mr: write $f: $!\n";
 	print $out @out;
-	close $out;	
+	close $out;
 }
 
 sub dispatch {
 	my $action=shift;
 
-	# actions that do not operate on all repos
+	# actions that do not operate on all repos by default
 	if ($action eq 'config') {
-		config(@ARGV);
+		if (defined $max_depth) {
+			foreach my $repo (selectrepos()) {
+				my $dir = @$repo[0] =~ s{/$}{}r;
+				my $actionmsg = actionmsg('config', $dir);
+				print "$actionmsg\n" unless $quiet || $minimal;
+				record($repo, config($quiet, $minimal, $actionmsg, $dir, @ARGV));
+			}
+			showstats("config");
+			exitstats();
+		} else {
+			my ($ret, undef) = config(0, 0, '', @ARGV);
+			exit ($ret == OK ? 0 : 255);
+		}
 	}
 	elsif ($action eq 'register') {
 		register(@ARGV);
@@ -1636,38 +2074,32 @@ sub dispatch {
 }
 
 sub help {
-	my $help=q#
-		case `uname -s` in
-			SunOS)
-			SHOWMANFILE="man -f"
-			;;
-			Darwin)
-			SHOWMANFILE="man"
-			;;
-			*)
-			SHOWMANFILE="man"
-			;;
-		esac
-		if [ ! -e "$MR_PATH" ]; then
-			error "cannot find program path"
-		fi
-		tmp=$(mktemp -t mr.XXXXXXXXXX) || error "mktemp failed"
-		trap "rm -f $tmp" exit
-		pod2man -c mr "$MR_PATH" > "$tmp" || error "pod2man failed"
-		$SHOWMANFILE "$tmp" || error "man failed"
-	#;
-	exec($help) || die "exec: $!";
+	if (! -e "$ENV{MR_PATH}") {
+		die "cannot find the program path";
+	}
+	exec("perldoc", $ENV{MR_PATH}) || die "exec perldoc: $!";
 }
 
 sub config {
+	my $quiet = shift;
+	my $minimal = shift;
+	my $actionmsg = shift;
+	my $output = '';
+	my $ret = OK;
 	if (@_ < 2) {
-		die "mr config: not enough parameters\n";
+		my ($dir) = find_repo_for($directory);
+		if (defined $dir && @_ == 1) {
+			$dir=~s{/$}{};
+			unshift @_, $dir;
+		} else {
+			die "mr config: not enough parameters\n";
+		}
 	}
 	my $section=shift;
 	if ($section=~/^\//) {
 		# try to convert to a path relative to the config file
 		my ($dir)=$ENV{MR_CONFIG}=~/^(.*\/)[^\/]+$/;
-		$dir=abs_path($dir);
+		$dir=safe_abs_path($dir);
 		$dir.="/" unless $dir=~/\/$/;
 		if ($section=~/^\Q$dir\E(.*)/) {
 			$section=$1;
@@ -1683,25 +2115,47 @@ sub config {
 			foreach my $topdir (sort keys %config) {
 				if (exists $config{$topdir}{$section} &&
 				    exists $config{$topdir}{$section}{$_}) {
-					print $config{$topdir}{$section}{$_}."\n";
+					if ($minimal && !$output) {
+						print "$actionmsg\n";
+					}
+					my $value = $config{$topdir}{$section}{$_}."\n";
+					if ($quiet) {
+						$output .= $value;
+					} else {
+						print $value;
+						$output = 1;
+					}
 					$found=1;
 					last if $section eq 'DEFAULT';
 				}
 			}
 			if (! $found) {
-				die "mr config: $section $_ not set\n";
+				my $value = "mr config: $section $_ not set\n";
+				if ($quiet) {
+					$output .= $value;
+				} elsif (!$minimal) {
+					print $value;
+					$output = 1;
+				}
+				if (!$minimal) {
+					$ret = FAILED;
+				}
 			}
 		}
 	}
 	modifyconfig($ENV{MR_CONFIG}, $section, %changefields) if %changefields;
-	exit 0;
+	if ($quiet && $ret == FAILED) {
+		print "$actionmsg\n";
+		print STDERR $output;
+	}
+	return ($ret, $output);
 }
 
 sub register {
 	if ($config_overridden) {
 		# Find the directory that the specified config file is
 		# located in.
-		($directory)=abs_path($ENV{MR_CONFIG})=~/^(.*\/)[^\/]+$/;
+		($directory)=safe_abs_path($ENV{MR_CONFIG})=~/^(.*\/)[^\/]+$/;
 	}
 	else {
 		# Find the closest known mrconfig file to the current
@@ -1748,7 +2202,7 @@ sub bootstrap {
 
 	my $src=shift @ARGV;
 	my $dir=shift @ARGV || ".";
-	
+
 	if (! defined $src || ! length $src) {
 		die "mr: bootstrap requires source\n";
 	}
@@ -1756,7 +2210,7 @@ sub bootstrap {
 	# Retrieve config file.
 	eval q{use File::Temp};
 	die $@ if $@;
-	my $tmpconfig=File::Temp->new();
+	my $tmpconfig=File::Temp->new(SUFFIX => '.mrconfig');
 	if ($src =~ m!^[\w\d]+://!) {
 		# Download the config file to a temporary location.
 		my @downloader;
@@ -1764,8 +2218,9 @@ sub bootstrap {
 			@downloader = ("scp", $1, $tmpconfig);
 		}
 		else {
-			@downloader = ("curl", "-A", "mr", "-L", "-s", $src, "-o", $tmpconfig);
+			@downloader = (qw(curl -A mr -L -s -o), $tmpconfig);
 			push(@downloader, "-k") if $insecure;
+			push(@downloader, '--', $src);
 		}
 		my $status = system(@downloader);
 		die "mr bootstrap: invalid SSL certificate for $src (consider -k)\n"
@@ -1775,23 +2230,25 @@ sub bootstrap {
 	elsif ($src eq '-') {
 		# Config file is read from stdin.
 		copy(\*STDIN, $tmpconfig) || die "stdin: $!";
+		seek $tmpconfig, 0, 0;
 	}
 	else {
 		# Config file is local.
 		die "mr bootstrap: cannot read file '$src'"
 			unless -r $src;
 		copy($src, $tmpconfig) || die "copy: $!";
+		seek $tmpconfig, 0, 0;
 	}
 
 	# Sanity check on destination directory.
 	if (! -e $dir) {
-		system("mkdir", "-p", $dir);
+		system(qw(mkdir -p --), $dir);
 	}
 	chdir($dir) || die "chdir $dir: $!";
 
-	# Special case to handle checkout of the "." repo, which 
+	# Special case to handle checkout of the "." repo, which
 	# would normally be skipped.
-	my $topdir=abs_path(".")."/";
+	my $topdir=safe_abs_path(".")."/";
 	my @repo=($topdir, $topdir, ".");
 	loadconfig($tmpconfig, $topdir, $src);
 	record(\@repo, action("checkout", @repo, 1))
@@ -1809,7 +2266,7 @@ sub bootstrap {
 	startingconfig();
 	loadconfig(".mrconfig");
 	dispatch("checkout");
-	@skipped=grep { abs_path($_) ne abs_path($topdir) } @skipped;
+	@skipped=grep { safe_abs_path($_) ne safe_abs_path($topdir) } @skipped;
 	showstats("bootstrap");
 	exitstats();
 }
@@ -1853,10 +2310,19 @@ sub getopts {
 	my @saved=@ARGV;
 	Getopt::Long::Configure("bundling", "no_permute");
 	my $result=GetOptions(
-		"d|directory=s" => sub { $directory=abs_path($_[1]) },
+		"d|directory=s" => sub { $directory=safe_abs_path($_[1]) },
 		"c|config=s" => sub { $ENV{MR_CONFIG}=$_[1]; $config_overridden=1 },
+		"cache" => \$save_cache,
+		"cached" => \$print_cache,
+		"uncache" => \$remove_cache,
+		"top" => \$chdir_top,
+		"no-print-action" => sub { $print_action = 0 },
+		"no-print-dir" => sub { $print_dir = 0 },
+		"no-print-subdir" => sub { $print_subdir = 0 },
+		"no-print-footer" => sub { $print_footer = 0 },
 		"p|path" => sub { }, # now default, ignore
 		"f|force" => \$force,
+		"force-env" => \$force_env,
 		"v|verbose" => \$verbose,
 		"m|minimal" => \$minimal,
 		"q|quiet" => \$quiet,
@@ -1864,14 +2330,15 @@ sub getopts {
 		"k|insecure" => \$insecure,
 		"i|interactive" => \$interactive,
 		"n|no-recurse:i" => \$max_depth,
-		"j|jobs:i" => \$jobs,
+		"r|recurse:i" => sub { $max_depth = $_[1] ? $_[1] : ~0; },
+		"j|jobs:i" => sub { $jobs = $_[1]; $jobs_cmdline=1; },
 		"t|trust-all" => \$trust_all,
 	);
 	if (! $result || @ARGV < 1) {
 		die("Usage: mr [options] action [params ...]\n".
 		    "(Use mr help for man page.)\n");
 	}
-	
+
 	$ENV{MR_SWITCHES}="";
 	foreach my $option (@saved) {
 		last if $option eq $ARGV[0];
@@ -1880,18 +2347,26 @@ sub getopts {
 }
 
 sub check {
+	return if $force_env;
 	my @env = qw(GIT_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_WORK_TREE VCSH_COMMAND VCSH_DIRECTORY VCSH_REPO_NAME);
+	my $error;
 	foreach (@env) {
-		die ("mr: environment variable '$_' is set. You are about to shoot your own foot.\n") if ($ENV{$_});
+		if ($ENV{$_}) {
+			$error=1;
+			print STDERR "mr: environment variable '$_' is set.\n";
+		}
 	}
+	die ("mr: The variables above would lead to very interesting effects.
+    Unfortunately, most of those effects result in data loss so we stop here.\n") if $error;
 }
 
 sub init {
 	$SIG{INT}=sub {
+		print STDERR "$erase_line" if defined $erase_line && $terminal && !$quiet && $minimal && 1 == $jobs;
 		print STDERR "mr: interrupted\n";
 		exit 2;
 	};
-	
+
 	# This can happen if it's run in a directory that was removed
 	# or other strangeness.
 	if (! defined $directory) {
@@ -1909,13 +2384,26 @@ sub init {
 		$ENV{MR_PATH}=$Bin."/".$Script;
 	};
 }
-	
+
 sub exitstats {
 	if (@failed) {
 		exit 1;
 	}
 	else {
 		exit 0;
+	}
+}
+
+# abs_path crashes on windows and some other platforms when given a file
+# that does not exist.
+sub safe_abs_path {
+	my $f=shift;
+	my $p=eval { abs_path($f) };
+	if ($@) {
+		return $f;
+	}
+	else {
+		return $p;
 	}
 }
 
@@ -1929,7 +2417,7 @@ sub main {
 	loadconfig($HOME_MR_CONFIG);
 	loadconfig($ENV{MR_CONFIG});
 	#use Data::Dumper; print Dumper(\%config);
-	
+
 	my $action=expandaction(shift @ARGV);
 	dispatch($action);
 
@@ -1948,30 +2436,45 @@ ls = list
 [DEFAULT]
 order = 10
 lib =
+	url_error() {
+		info "cannot determine $* url"
+		info 'to register a local-only repository, run this:'
+		# shellcheck disable=SC2016 # this prints the exact command needed
+		echo 'mr config "$(pwd)" checkout="error no url known for repo"' >&2
+		exit 1
+	}
 	error() {
-		echo "mr: $@" >&2
+		echo "mr: $*" >&2
 		exit 1
 	}
 	warning() {
-		echo "mr (warning): $@" >&2
+		echo "mr (warning): $*" >&2
 	}
 	info() {
-		echo "mr: $@" >&2
+		echo "mr: $*" >&2
 	}
 	hours_since() {
 		if [ -z "$1" ] || [ -z "$2" ]; then
 			error "mr: usage: hours_since action num"
 		fi
-		for dir in .git .svn .bzr CVS .hg _darcs _FOSSIL_; do
+		for dir in .git .svn .bzr CVS .hg _darcs _FOSSIL_ .fslckout; do
 			if [ -e "$MR_REPO/$dir" ]; then
 				flagfile="$MR_REPO/$dir/.mr_last$1"
 				break
 			fi
 		done
 		if [ -z "$flagfile" ]; then
+			for dir in refs/heads; do
+				if [ -e "$MR_REPO/$dir" ]; then
+					flagfile="$MR_REPO/.mr_last$1"
+					break
+				fi
+			done
+		fi
+		if [ -z "$flagfile" ]; then
 			error "cannot determine flag filename"
 		fi
-		delta=`perl -wle 'print -f shift() ? int((-M _) * 24) : 9999' "$flagfile"`
+		delta=$(perl -wle 'print -f shift() ? int((-M _) * 24) : 9999' "$flagfile")
 		if [ "$delta" -lt "$2" ]; then
 			return 1
 		else
@@ -1980,7 +2483,7 @@ lib =
 		fi
 	}
 	is_bzr_checkout() {
-		LANG=C bzr info | egrep -q '^Checkout'
+		LANG=C bzr info | grep -qE '^Checkout'
 	}
 	lazy() {
 		if [ -d "$MR_REPO" ]; then
@@ -1996,8 +2499,8 @@ bzr_test = perl: -d "$ENV{MR_REPO}/.bzr"
 cvs_test = perl: -d "$ENV{MR_REPO}/CVS"
 hg_test  = perl: -d "$ENV{MR_REPO}/.hg"
 darcs_test = perl: -d "$ENV{MR_REPO}/_darcs"
-fossil_test = perl: -f "$ENV{MR_REPO}/_FOSSIL_"
-git_bare_test = perl: 
+fossil_test = perl: -f "$ENV{MR_REPO}/_FOSSIL_" || -f "$ENV{MR_REPO}/.fslckout"
+git_bare_test = perl:
 	-d "$ENV{MR_REPO}/refs/heads" && -d "$ENV{MR_REPO}/refs/tags" &&
 	-d "$ENV{MR_REPO}/objects" && -f "$ENV{MR_REPO}/config" &&
 	`GIT_CONFIG="$ENV{MR_REPO}"/config git config --get core.bare` =~ /true/
@@ -2009,7 +2512,7 @@ veracity_test  = perl: -d "$ENV{MR_REPO}/.sgdrawer"
 
 svn_update = svn update "$@"
 git_update = git pull "$@"
-bzr_update = 
+bzr_update =
 	if is_bzr_checkout; then
 		bzr update "$@"
 	else
@@ -2022,47 +2525,39 @@ fossil_update = fossil pull "$@"
 vcsh_update = vcsh run "$MR_REPO" git pull "$@"
 veracity_update = vv pull "$@" && vv update "$@"
 
-git_fetch = git fetch --all --prune --tags
-git_svn_fetch = git svn fetch
-darcs_fetch = darcs fetch
-hg_fetch = hg pull
+git_fetch = git fetch --all --prune --tags "$@"
+darcs_fetch = darcs fetch -a "$@"
+hg_fetch = hg pull "$@"
 
-svn_clean = 
+svn_clean =
 	if [ "x$1" = x-f ] ; then
 		shift
 		svn-clean "$@"
 	else
 		svn-clean --print "$@"
 	fi
-git_clean = 
+git_clean =
 	if [ "x$1" = x-f ] ; then
 		shift
 		git clean -dx --force "$@"
 	else
 		git clean -dx --dry-run "$@"
 	fi
-git_svn_clean = 
-	if [ "x$1" = x-f ] ; then
-		shift
-		git clean -dx --force "$@"
-	else
-		git clean -dx --dry-run "$@"
-	fi
-bzr_clean = 
+bzr_clean =
 	if [ "x$1" = x-f ] ; then
 		shift
 		bzr clean-tree --verbose --force --ignored --unknown --detritus "$@"
 	else
 		bzr clean-tree --verbose --dry-run --ignored --unknown --detritus "$@"
 	fi
-cvs_clean = 
-        if [ "x$1" = x-f ] ; then
+cvs_clean =
+	if [ "x$1" = x-f ] ; then
 		shift
 		cvs-clean "$@"
 	else
 		cvs-clean --dry-run "$@"
 	fi
-hg_clean = 
+hg_clean =
 	if [ "x$1" = x-f ] ; then
 		shift
 		hg purge --print --all "$@"
@@ -2070,14 +2565,14 @@ hg_clean =
 	else
 		hg purge --print --all "$@"
 	fi
-fossil_clean = 
+fossil_clean =
 	if [ "x$1" = x-f ] ; then
 		shift
 		fossil clean --dry-run --dotfiles --emptydirs "$@"
 	else
 		fossil clean --force --dotfiles --emptydirs "$@"
 	fi
-vcsh_clean = 
+vcsh_clean =
 	if [ "x$1" = x-f ] ; then
 		shift
 		vcsh run "$MR_REPO" git clean -dx "$@"
@@ -2086,18 +2581,18 @@ vcsh_clean =
 	fi
 
 svn_status = svn status "$@"
-git_status = git status -s "$@" || true; git --no-pager log --branches --not --remotes --simplify-by-decoration --decorate --oneline || true
-bzr_status = bzr status --short "$@"; bzr missing
-cvs_status = cvs -q status | grep -E '^(File:.*Status:|\?)' | grep -v 'Status: Up-to-date'
-hg_status  = hg status "$@"; hg summary --quiet | grep -v 'parent: 0:'
+git_status = git status -s "$@" || true; git --no-pager log --branches --not --remotes --simplify-by-decoration --decorate --oneline || true; git --no-pager stash list
+bzr_status = bzr status --short "$@"; bzr missing || true
+cvs_status = cvs -n -q update "$@"
+hg_status  = hg status --pager never "$@"; hg summary --pager never --quiet | grep -v 'parent: 0:'
 darcs_status = darcs whatsnew -ls "$@" || true
 fossil_status = fossil changes "$@"
-vcsh_status = vcsh run "$MR_REPO" git -c status.relativePaths=false status -s "$@" || true
+vcsh_status = vcsh status "$MR_REPO" "$@" || true
 veracity_status = vv status "$@"
 
 svn_commit = svn commit "$@"
 git_commit = git commit -a "$@" && git push --all
-bzr_commit = 
+bzr_commit =
 	if is_bzr_checkout; then
 		bzr commit "$@"
 	else
@@ -2127,7 +2622,7 @@ svn_push = :
 git_push = git push "$@"
 bzr_push = bzr push "$@"
 cvs_push = :
-hg_push = hg push "$@"
+hg_push = hg push "$@" || if [ "$?" -eq "255" ] ; then exit 1; else exit 0; fi
 darcs_push = darcs push -a "$@"
 fossil_push = fossil push "$@"
 vcsh_push = vcsh run "$MR_REPO" git push "$@"
@@ -2154,77 +2649,87 @@ fossil_log = fossil timeline "$@"
 vcsh_log = vcsh run "$MR_REPO" git log "$@"
 veracity_log = vv log "$@"
 
-hg_grep = hg grep "$@"
-cvs_grep = ack-grep "$@"
-svn_grep = ack-grep "$@"
-git_svn_grep = git grep "$@"
-git_grep = git grep "$@"
-bzr_grep = ack-grep "$@"
-darcs_grep = ack-grep "$@"
+hg_grep = hg grep "$@" || true
+cvs_grep = if command -v ack-grep > /dev/null 2>&1; then ack-grep "$@" || true ; else ack "$@" || true ; fi
+svn_grep = if command -v ack-grep > /dev/null 2>&1; then ack-grep "$@" || true ; else ack "$@" || true ; fi
+git_grep = git grep "$@" || true
+bzr_grep = if command -v ack-grep > /dev/null 2>&1; then ack-grep "$@" || true ; else ack "$@" || true ; fi
+darcs_grep = if command -v ack-grep > /dev/null 2>&1; then ack-grep "$@" || true ; else ack "$@" || true ; fi
 
 run = "$@"
 
 svn_register =
-	url=`LC_ALL=C svn info . | grep -i '^URL:' | cut -d ' ' -f 2`
+	url=$(LC_ALL=C svn info . | grep -i '^URL:' | cut -d ' ' -f 2)
 	if [ -z "$url" ]; then
 		error "cannot determine svn url"
 	fi
 	echo "Registering svn url: $url in $MR_CONFIG"
-	mr -c "$MR_CONFIG" config "`pwd`" checkout="svn co '$url' '$MR_REPO'"
-git_register = 
-	url="`LC_ALL=C git config --get remote.origin.url`" || true
+	mr -c "$MR_CONFIG" config "$(pwd)" checkout="svn co '$url' '$MR_REPO'"
+git_register =
+	branch="$(LC_ALL=C git symbolic-ref --quiet --short HEAD)" || branch=master
+	remote="$(LC_ALL=C git config --get branch.$branch.remote 2> /dev/null)" || remote=origin
+	url="$(LC_ALL=C git config --get "remote.$remote.url")" || true
 	if [ -z "$url" ]; then
-		error "cannot determine git url"
+		url_error git
 	fi
 	echo "Registering git url: $url in $MR_CONFIG"
-	mr -c "$MR_CONFIG" config "`pwd`" checkout="git clone '$url' '$MR_REPO'"
+	mr -c "$MR_CONFIG" config "$(pwd)" checkout="git clone '$url' '$MR_REPO'"
 bzr_register =
-	url="`LC_ALL=C bzr info . | egrep -i 'checkout of branch|parent branch' | awk '{print $NF}' | head -n 1`"
+	url="$(LC_ALL=C bzr info . | grep -iE 'checkout of branch|parent branch' | awk '{print $NF}' | head -n 1)"
 	if [ -z "$url" ]; then
-		error "cannot determine bzr url"
+		url_error bzr
 	fi
 	echo "Registering bzr url: $url in $MR_CONFIG"
-	mr -c "$MR_CONFIG" config "`pwd`" checkout="bzr branch '$url' '$MR_REPO'"
+	mr -c "$MR_CONFIG" config "$(pwd)" checkout="bzr branch '$url' '$MR_REPO'"
 cvs_register =
-	repo=`cat CVS/Repository`
-	root=`cat CVS/Root`
+	repo=$(cat CVS/Repository)
+	root=$(cat CVS/Root)
 	if [ -z "$root" ]; then
 		error "cannot determine cvs root"
-		fi
+	fi
 	echo "Registering cvs repository $repo at root $root"
-	mr -c "$MR_CONFIG" config "`pwd`" checkout="cvs -d '$root' co -d '$MR_REPO' '$repo'"
-hg_register = 
-	url=`hg showconfig paths.default`
+	mr -c "$MR_CONFIG" config "$(pwd)" checkout="cvs -d '$root' co -d '$MR_REPO' '$repo'"
+hg_register =
+	if ! url=$(hg showconfig paths.default) ; then
+		url_error hg
+	fi
 	echo "Registering mercurial repo url: $url in $MR_CONFIG"
-	mr -c "$MR_CONFIG" config "`pwd`" checkout="hg clone '$url' '$MR_REPO'"
-darcs_register = 
-	url=`cat _darcs/prefs/defaultrepo`
+	mr -c "$MR_CONFIG" config "$(pwd)" checkout="hg clone '$url' '$MR_REPO'"
+darcs_register =
+	if ! url=$(cat _darcs/prefs/defaultrepo 2> /dev/null) ; then
+		url_error darcs
+	fi
 	echo "Registering darcs repository $url in $MR_CONFIG"
-	mr -c "$MR_CONFIG" config "`pwd`" checkout="darcs get '$url' '$MR_REPO'"
-git_bare_register = 
-	url="`LC_ALL=C GIT_CONFIG=config git config --get remote.origin.url`" || true
+	mr -c "$MR_CONFIG" config "$(pwd)" checkout="darcs get '$url' '$MR_REPO'"
+git_bare_register =
+	branch="$(LC_ALL=C GIT_CONFIG=config git symbolic-ref --quiet --short HEAD)" || branch=master
+	remote="$(LC_ALL=C GIT_CONFIG=config git config --get branch.$branch.remote 2> /dev/null)" || remote=origin
+	url="$(LC_ALL=C GIT_CONFIG=config git config --get "remote.$remote.url")" || true
 	if [ -z "$url" ]; then
-		error "cannot determine git url"
+		url_error git bare
 	fi
 	echo "Registering git url: $url in $MR_CONFIG"
-	mr -c "$MR_CONFIG" config "`pwd`" checkout="git clone --bare '$url' '$MR_REPO'"
+	mr -c "$MR_CONFIG" config "$(pwd)" checkout="git clone --bare '$url' '$MR_REPO'"
 vcsh_register =
-	url="`LC_ALL=C vcsh run "$MR_REPO" git config --get remote.origin.url`" || true
+	mr_repo_basename=$(basename "$MR_REPO" .git)
+	branch="$(LC_ALL=C vcsh run "$mr_repo_basename" git symbolic-ref --quiet --short HEAD)" || branch=master
+	remote="$(LC_ALL=C vcsh run "$mr_repo_basename" git config --get branch.$branch.remote 2> /dev/null)" || remote=origin
+	url="$(LC_ALL=C vcsh run "$mr_repo_basename" git config --get "remote.$remote.url")" || true
 	if [ -z "$url" ]; then
-		error "cannot determine git url"
+		url_error vcsh git
 	fi
 	echo "Registering git url: $url in $MR_CONFIG"
-	mr -c "$MR_CONFIG" config "`pwd`" checkout="vcsh clone '$url' '$MR_REPO'"
+	mr -c "$MR_CONFIG" config "$(pwd)" checkout="vcsh clone '$url' '$mr_repo_basename'"
 fossil_register =
-	url=`fossil remote-url`
-	repo=`fossil info | grep repository | sed -e 's/repository:*.//g' -e 's/ //g'`
+	url=$(fossil remote-url)
+	repo=$(fossil info | grep repository | sed -e 's/repository:*.//g' -e 's/ //g')
 	echo "Registering fossil repository $url in $MR_CONFIG"
-	mr -c "$MR_CONFIG" config "`pwd`" checkout="mkdir -p '$MR_REPO' && cd '$MR_REPO' && fossil open '$repo'"
+	mr -c "$MR_CONFIG" config "$(pwd)" checkout="mkdir -p '$MR_REPO' && cd '$MR_REPO' && fossil open '$repo'"
 veracity_register =
-	url=`vv config | grep sync_targets | sed -e 's/sync_targets:*.//g' -e 's/ //g'`
-	repo=`vv repo info | grep repository | sed -e 's/Current repository:*.//g' -e 's/ //g'`
+	url=$(vv config | grep sync_targets | sed -e 's/sync_targets:*.//g' -e 's/ //g')
+	repo=$(vv repo info | grep repository | sed -e 's/Current repository:*.//g' -e 's/ //g')
 	echo "Registering veracity repository $url in $MR_CONFIG"
-	mr -c "$MR_CONFIG" config "`pwd`" checkout="mkdir -p '$MR_REPO' && cd '$MR_REPO' && vv checkout '$repo'"
+	mr -c "$MR_CONFIG" config "$(pwd)" checkout="mkdir -p '$MR_REPO' && cd '$MR_REPO' && vv checkout '$repo'"
 
 svn_trusted_checkout = svn co $url $repo
 svn_alt_trusted_checkout = svn checkout $url $repo
@@ -2241,8 +2746,8 @@ veracity_trusted_checkout = vv clone $url $repo
 
 
 list = true
-config = 
-bootstrap = 
+config =
+bootstrap =
 
 online =
 	if [ -s ~/.mrlog ]; then
@@ -2260,7 +2765,7 @@ offline =
 	touch ~/.mrlog
 	info "offline mode enabled"
 remember =
-	info "remembering command: 'mr $@'"
+	info "remembering command: 'mr $*'"
 	command="mr -d '$(pwd)' $MR_SWITCHES"
 	for w in "$@"; do
 		command="$command '$w'"
