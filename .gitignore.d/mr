@@ -5,7 +5,9 @@
 !/.config/mr/available.d/dotfiles.vcsh
 !/.config/mr/available.d/emacs.vcsh
 !/.config/mr/available.d/local.vcsh
+!/.config/mr/available.d/macos.vcsh
 !/.config/mr/available.d/mr.vcsh
+!/.config/mr/available.d/neovim.vcsh
 !/.config/mr/available.d/tpm.mr
 !/.config/mr/available.d/vim.vcsh
 !/.config/mr/available.d/zsh.vcsh
@@ -13,8 +15,8 @@
 !/.config/mr/config.d/dotfiles.vcsh
 !/.config/mr/config.d/local.vcsh
 !/.config/mr/config.d/mr.vcsh
+!/.config/mr/config.d/neovim.vcsh
 !/.config/mr/config.d/tpm.mr
-!/.config/mr/config.d/vim.vcsh
 !/.config/mr/config.d/zsh.vcsh
 !/.config/vcsh
 !/.config/vcsh/hooks-available
@@ -29,6 +31,7 @@
 !/.gitignore.d
 !/.gitignore.d/mr
 !/.mrconfig
+!/README.md
 !/Vagrantfile
 !/local
 !/local/bin
@@ -54,5 +57,5 @@
 !/local/share/mr/vcsh
 !/local/share/mr/vis
 !/local/share/zsh
-!/local/share/zsh/vendor-completions
-!/local/share/zsh/vendor-completions/_vcsh
+!/local/share/zsh/site-functions
+!/local/share/zsh/site-functions/_vcsh
