@@ -1,0 +1,9 @@
+[$HOME/.zfunctions/pure]
+checkout =
+    git clone 'git@github.com:jwhitley/pure.git' 'pure'
+    cd $HOME/.zfunctions/pure
+    git remote add upstream git@github.com:sindresorhus/pure.git
+upgrade =
+    git fetch upstream
+    git merge --ff-only upstream/main
+    git push origin main
